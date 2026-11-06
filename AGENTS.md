@@ -242,8 +242,10 @@ Never write a number in the README that is not in a results file.
 ## 8. SPECIFICATION
 
 ### 8.1 Data: `python/prepare_data.py`
-- Input: `data/higgs_sample.csv` (the first 200,000 rows of HIGGS, no header,
-  created by the user; see STRUCTURE.md).
+- Input: `data/higgs_sample.csv` (created by `python/download_data.py` from the
+  OpenML version of UCI HIGGS, data_id 23512, 98,050 rows, label in column 0, no
+  header; the pool must contain at least 15,000 background and 5,000 signal
+  rows).
 - **Do not take 20,000 purely random rows.** HIGGS is about half signal, so
   random sampling would not give enough background. Instead, with a fixed
   seed, **sample by label**: 15,000 background and 5,000 signal events.

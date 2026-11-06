@@ -16,12 +16,13 @@ collider-anomaly-detection-onnx/
 ├── .gitignore
 ├── LICENSE                   # MIT
 ├── data/
-│   ├── higgs_sample.csv      # First 200,000 HIGGS rows (YOU create it, git-ignored)
+│   ├── higgs_sample.csv      # OpenML HIGGS sample created by download_data.py (git-ignored)
 │   ├── sample_events.csv     # 1,000 demo test events (committed)
 │   ├── test_events.csv       # Full test split for benchmarks (git-ignored)
 │   └── processed/            # .npz splits (git-ignored)
 ├── python/
 │   ├── config.py             # All constants: seed, sizes, paths, epochs, lr
+│   ├── download_data.py      # Download OpenML HIGGS dataset sample (data_id 23512)
 │   ├── prepare_data.py       # Stratified sampling and train/val/test splits
 │   ├── model.py              # Autoencoder with built-in standardization
 │   ├── train.py              # Train on background, compute threshold
@@ -71,14 +72,14 @@ HIGGS csv ─► prepare_data.py ─► train.py ─► autoencoder.pt + thresho
 
 ## Data details
 
-- Source: UCI HIGGS dataset, https://archive.ics.uci.edu/dataset/280/higgs
+- Source: UCI HIGGS dataset (https://archive.ics.uci.edu/dataset/280/higgs), downloaded via OpenML (data_id 23512, https://www.openml.org/d/23512).
 - Format: no header; column 0 = label (1 = signal, 0 = background); columns
-  1 to 28 = features.
+  1 to 28 = features. Created by `python python/download_data.py`.
 - Splits (fixed seed, sampled **by label**):
   - train: 8,000 background
   - validation: 2,000 background
   - test: 5,000 background + 5,000 signal
-- The full HIGGS file is several GB. Do not commit it.
+- The raw dataset is git-ignored. Do not commit it.
 
 ## Prerequisites (Windows)
 
@@ -90,11 +91,10 @@ HIGGS csv ─► prepare_data.py ─► train.py ─► autoencoder.pt + thresho
    (`onnxruntime-win-x64-<version>.zip`) from the ONNX Runtime GitHub
    releases and extract it to a path without spaces, for example
    `third_party\onnxruntime`.
-5. **HIGGS sample:** download `HIGGS.csv.gz` from UCI, then create the sample
-   without unzipping the whole file (PowerShell, from the repo root):
+5. **HIGGS sample:** download and prepare the OpenML HIGGS sample via `python python/download_data.py` (PowerShell, from the repo root):
 
 ```powershell
-python -c "import gzip, itertools; f = gzip.open('HIGGS.csv.gz', 'rt'); open('data/higgs_sample.csv', 'w').writelines(itertools.islice(f, 200000))"
+python python/download_data.py
 ```
 
 ## How to run (Windows PowerShell)
