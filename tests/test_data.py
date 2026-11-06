@@ -126,3 +126,4 @@ def test_sample_events_csv():
 
     assert bg_count == config.SAMPLE_EVENTS_BACKGROUND_COUNT
     assert sig_count == config.SAMPLE_EVENTS_SIGNAL_COUNT
+
