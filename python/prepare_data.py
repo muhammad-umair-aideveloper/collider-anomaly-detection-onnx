@@ -58,7 +58,7 @@ def load_and_validate_raw_data(csv_path: Path) -> pd.DataFrame:
         csv_path: Path to the raw CSV file.
 
     Returns:
-        pd.DataFrame: Validated raw dataframe.
+        pd.DataFrame: Validated raw dataframe without duplicate rows.
 
     Raises:
         FileNotFoundError: If input file does not exist.
@@ -93,11 +93,18 @@ def load_and_validate_raw_data(csv_path: Path) -> pd.DataFrame:
             f"Unexpected label values {unique_labels}. Expected only {{0, 1}}."
         )
 
-    total_rows = len(df)
-    bg_count = int((labels == config.LABEL_BACKGROUND).sum())
-    sig_count = int((labels == config.LABEL_SIGNAL).sum())
+    # Remove exact duplicate events to prevent cross-split data leakage
+    num_duplicates = int(df.duplicated().sum())
+    if num_duplicates > 0:
+        print(f"Notice: Dropping {num_duplicates} duplicate event(s) from pool.")
+        df = df.drop_duplicates().reset_index(drop=True)
 
-    print(f"Raw dataset loaded: {total_rows} total rows, {df.shape[1]} columns.")
+    total_rows = len(df)
+    final_labels = df.iloc[:, 0].astype(int)
+    bg_count = int((final_labels == config.LABEL_BACKGROUND).sum())
+    sig_count = int((final_labels == config.LABEL_SIGNAL).sum())
+
+    print(f"Raw dataset loaded: {total_rows} unique rows, {df.shape[1]} columns.")
     print(f"Available background events (label=0): {bg_count}")
     print(f"Available signal events (label=1): {sig_count}")
 
@@ -122,7 +129,7 @@ def sample_and_split(
     """Sample events by label and partition into train, val, and test splits.
 
     Args:
-        df: Raw validated HIGGS DataFrame.
+        df: Raw validated HIGGS DataFrame without duplicates.
         seed: Random seed for reproducibility.
 
     Returns:
