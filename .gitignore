@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Environments
+.venv/
+venv/
+
+# Build and binary files
+build/
+out/
+.vs/
+*.exe
+*.obj
+*.pdb
+*.dll
+
+# IDEs and OS files
+.idea/
+.vscode/
+.DS_Store
+
+# Third-party packages
+third_party/
+
+# Dataset files
+data/*.csv
+data/*.gz
+data/processed/
+
+# Tracked demo sample exception
+!data/sample_events.csv
