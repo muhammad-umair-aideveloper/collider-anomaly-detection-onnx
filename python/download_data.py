@@ -8,7 +8,6 @@ followed by the 28 numerical features, and saves it to data/higgs_sample.csv.
 import argparse
 import sys
 from pathlib import Path
-from typing import Tuple
 
 import pandas as pd
 from sklearn.datasets import fetch_openml
@@ -63,17 +62,6 @@ def download_openml_higgs(data_id: int = OPENML_DATA_ID) -> pd.DataFrame:
     features: pd.DataFrame = dataset.data
     raw_labels = dataset.target
 
-    # Convert nominal target '0'/'1' to integer labels
-    labels = raw_labels.astype(int)
-
-    # Validate row count and labels
-    num_rows = len(labels)
-    unique_labels = set(labels.unique())
-    if not unique_labels.issubset({0, 1}):
-        raise RuntimeError(
-            f"Unexpected label values found: {unique_labels}. Expected only {{0, 1}}."
-        )
-
     # Validate feature dimensions
     num_features = features.shape[1]
     if num_features != config.NUM_FEATURES:
@@ -81,27 +69,46 @@ def download_openml_higgs(data_id: int = OPENML_DATA_ID) -> pd.DataFrame:
             f"Expected {config.NUM_FEATURES} features, got {num_features}."
         )
 
+    # Convert nominal target '0'/'1' to integer labels
+    labels = raw_labels.astype(int)
+
     # Assemble combined DataFrame with label in column 0
     combined = pd.concat([labels.rename("label"), features], axis=1)
 
-    # Validate column count
+    # Check and remove any incomplete rows containing NaNs
+    nan_rows = combined.isna().any(axis=1).sum()
+    if nan_rows > 0:
+        print(f"Notice: Dropping {nan_rows} incomplete row(s) with missing values.")
+        combined = combined.dropna().reset_index(drop=True)
+
+    # Validate: exactly 29 columns
     expected_cols = config.NUM_FEATURES + 1
     if combined.shape[1] != expected_cols:
         raise RuntimeError(
-            f"Expected {expected_cols} columns, got {combined.shape[1]}."
+            f"Validation failed: expected {expected_cols} columns, got {combined.shape[1]}."
         )
 
-    # Validate missing values
-    num_nan = combined.isna().sum().sum()
-    if num_nan > 0:
-        raise RuntimeError(f"Dataset contains {num_nan} NaN values; expected 0.")
+    # Validate: no NaN
+    total_nans = combined.isna().sum().sum()
+    if total_nans != 0:
+        raise RuntimeError(
+            f"Validation failed: dataset contains {total_nans} NaN values; expected 0."
+        )
 
-    # Print summary statistics
-    count_background = int((labels == 0).sum())
-    count_signal = int((labels == 1).sum())
+    # Validate: labels only 0 or 1
+    final_labels = combined.iloc[:, 0].astype(int)
+    unique_labels = set(final_labels.unique())
+    if not unique_labels.issubset({0, 1}):
+        raise RuntimeError(
+            f"Validation failed: unexpected labels {unique_labels}. Expected only {{0, 1}}."
+        )
+
+    num_rows = len(combined)
+    count_background = int((final_labels == 0).sum())
+    count_signal = int((final_labels == 1).sum())
 
     print(f"OpenML data_id: {data_id}")
-    print(f"Total rows fetched: {num_rows}")
+    print(f"Total rows fetched and validated: {num_rows}")
     print(f"Total columns: {combined.shape[1]} (1 label + {num_features} features)")
     print(f"Background events (label=0): {count_background}")
     print(f"Signal events (label=1): {count_signal}")
