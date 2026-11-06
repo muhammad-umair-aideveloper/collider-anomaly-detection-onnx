@@ -1,0 +1,24 @@
+# collider-anomaly-detection-onnx
+# Python 3.10+ recommended. CPU only (no GPU needed).
+#
+# Install PyTorch CPU build first (smaller download, works on Windows):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# Then install the rest:
+#   pip install -r requirements.txt
+#
+# Notes:
+# - Newer PyTorch versions may need `onnxscript` for torch.onnx.export.
+# - The Python `onnxruntime` package should be close in version to the
+#   prebuilt ONNX Runtime C++ package you download.
+# - After everything works on your machine, run `pip freeze` and pin the exact
+#   versions you tested (replace the ranges below) for reproducibility.
+
+torch>=2.2
+numpy>=1.26
+pandas>=2.1
+scikit-learn>=1.4
+matplotlib>=3.8
+onnx>=1.16
+onnxruntime>=1.18
+onnxscript
+pytest>=8.0
