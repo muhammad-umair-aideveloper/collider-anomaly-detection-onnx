@@ -125,15 +125,15 @@ def load_and_validate_raw_data(csv_path: Path) -> pd.DataFrame:
 
 def sample_and_split(
     df: pd.DataFrame, seed: int
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Sample events by label and partition into train, val, and test splits.
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Sample events by label and partition into train, val, test, and select splits.
 
     Args:
         df: Raw validated HIGGS DataFrame without duplicates.
         seed: Random seed for reproducibility.
 
     Returns:
-        Tuple of (train_df, val_df, test_df).
+        Tuple of (train_df, val_df, test_df, select_df).
 
     Raises:
         RuntimeError: If data leakage or overlap across splits is detected.
@@ -187,14 +187,39 @@ def sample_and_split(
     train_df = train_bg.reset_index(drop=True)
     val_df = val_bg.reset_index(drop=True)
 
-    # Feature-level duplicate check across splits
+    # Sample model-selection split from pool rows NOT in train, val, or test
+    remaining_bg = bg_pool.loc[~bg_pool.index.isin(bg_sampled.index)]
+    remaining_sig = sig_pool.loc[~sig_pool.index.isin(sig_sampled.index)]
+
+    # Use separate RNG derived from seed
+    select_seed = seed + 1000
+    select_bg = remaining_bg.sample(
+        n=config.SELECT_BACKGROUND_COUNT, random_state=select_seed, replace=False
+    )
+    select_sig = remaining_sig.sample(
+        n=config.SELECT_SIGNAL_COUNT, random_state=select_seed, replace=False
+    )
+
+    used_indices = set(bg_sampled.index).union(set(sig_sampled.index))
+    select_indices = set(select_bg.index).union(set(select_sig.index))
+    if not used_indices.isdisjoint(select_indices):
+        raise RuntimeError("Data leakage: selection set overlaps with train, val, or test splits!")
+
+    select_combined = pd.concat([select_bg, select_sig], axis=0)
+    select_df = select_combined.sample(frac=1.0, random_state=select_seed).reset_index(drop=True)
+
+    # Feature-level duplicate check across all splits
     train_tuples = set(map(tuple, train_df.iloc[:, 1:].values))
     val_tuples = set(map(tuple, val_df.iloc[:, 1:].values))
     test_tuples = set(map(tuple, test_df.iloc[:, 1:].values))
+    select_tuples = set(map(tuple, select_df.iloc[:, 1:].values))
 
     overlap_train_val = train_tuples.intersection(val_tuples)
     overlap_train_test = train_tuples.intersection(test_tuples)
     overlap_val_test = val_tuples.intersection(test_tuples)
+    overlap_train_select = train_tuples.intersection(select_tuples)
+    overlap_val_select = val_tuples.intersection(select_tuples)
+    overlap_test_select = test_tuples.intersection(select_tuples)
 
     if overlap_train_val:
         raise RuntimeError(
@@ -208,15 +233,28 @@ def sample_and_split(
         raise RuntimeError(
             f"Data leakage detected: {len(overlap_val_test)} identical events between val and test!"
         )
+    if overlap_train_select:
+        raise RuntimeError(
+            f"Data leakage detected: {len(overlap_train_select)} identical events between train and select!"
+        )
+    if overlap_val_select:
+        raise RuntimeError(
+            f"Data leakage detected: {len(overlap_val_select)} identical events between val and select!"
+        )
+    if overlap_test_select:
+        raise RuntimeError(
+            f"Data leakage detected: {len(overlap_test_select)} identical events between test and select!"
+        )
 
     print("Splits successfully created with zero event overlap.")
-    return train_df, val_df, test_df
+    return train_df, val_df, test_df, select_df
 
 
 def save_npz_splits(
     train_df: pd.DataFrame,
     val_df: pd.DataFrame,
     test_df: pd.DataFrame,
+    select_df: pd.DataFrame,
     output_dir: Path,
 ) -> Dict[str, Path]:
     """Save datasets into compressed numpy archives (.npz).
@@ -225,6 +263,7 @@ def save_npz_splits(
         train_df: Training set.
         val_df: Validation set.
         test_df: Test set.
+        select_df: Model selection set.
         output_dir: Destination folder.
 
     Returns:
@@ -235,12 +274,14 @@ def save_npz_splits(
         "train": output_dir / "train.npz",
         "val": output_dir / "val.npz",
         "test": output_dir / "test.npz",
+        "select": output_dir / "select.npz",
     }
 
     for name, df, path in [
         ("train", train_df, paths["train"]),
         ("val", val_df, paths["val"]),
         ("test", test_df, paths["test"]),
+        ("select", select_df, paths["select"]),
     ]:
         features = df.iloc[:, 1:].values.astype(np.float32)
         labels = df.iloc[:, 0].values.astype(np.int64)
@@ -300,9 +341,9 @@ def main() -> None:
     args = parse_args()
     raw_df = load_and_validate_raw_data(args.input_csv)
 
-    train_df, val_df, test_df = sample_and_split(raw_df, seed=args.seed)
+    train_df, val_df, test_df, select_df = sample_and_split(raw_df, seed=args.seed)
 
-    npz_paths = save_npz_splits(train_df, val_df, test_df, args.output_dir)
+    npz_paths = save_npz_splits(train_df, val_df, test_df, select_df, args.output_dir)
     test_csv, sample_csv = save_csv_events(
         test_df,
         config.TEST_EVENTS_PATH,
@@ -316,25 +357,30 @@ def main() -> None:
     print("=" * 50)
     print(f"Random Seed: {args.seed}")
     print(
-        f"Train Split: shape={train_df.shape}, "
+        f"Train Split:  shape={train_df.shape}, "
         f"background={(train_df.iloc[:, 0] == 0).sum()}, signal={(train_df.iloc[:, 0] == 1).sum()}"
     )
     print(
-        f"Val Split:   shape={val_df.shape}, "
+        f"Val Split:    shape={val_df.shape}, "
         f"background={(val_df.iloc[:, 0] == 0).sum()}, signal={(val_df.iloc[:, 0] == 1).sum()}"
     )
     print(
-        f"Test Split:  shape={test_df.shape}, "
+        f"Test Split:   shape={test_df.shape}, "
         f"background={(test_df.iloc[:, 0] == 0).sum()}, signal={(test_df.iloc[:, 0] == 1).sum()}"
     )
     print(
-        f"Demo Sample: shape=(1000, 29), "
+        f"Select Split: shape={select_df.shape}, "
+        f"background={(select_df.iloc[:, 0] == 0).sum()}, signal={(select_df.iloc[:, 0] == 1).sum()}"
+    )
+    print(
+        f"Demo Sample:  shape=(1000, 29), "
         f"background={config.SAMPLE_EVENTS_BACKGROUND_COUNT}, signal={config.SAMPLE_EVENTS_SIGNAL_COUNT}"
     )
     print("\nFiles Written:")
     print(f"  - {npz_paths['train']} (train.npz)")
     print(f"  - {npz_paths['val']} (val.npz)")
     print(f"  - {npz_paths['test']} (test.npz)")
+    print(f"  - {npz_paths['select']} (select.npz)")
     print(f"  - {test_csv} (full test CSV)")
     print(f"  - {sample_csv} (sample demo CSV)")
     print("=" * 50)
