@@ -237,11 +237,13 @@ def generate_verification_report(
         str: Markdown document content.
     """
     status_str = "**PASSED**" if passed else "**FAILED**"
-    cpp_status_str = (
-        f"Max abs diff vs ORT: {cpp_max_diff:.3e} (Mean: {cpp_mean_diff:.3e})"
-        if cpp_available
-        else "*(Skipped: C++ benchmark output not yet generated)*"
-    )
+    if cpp_available:
+        if cpp_max_diff < tolerance:
+            cpp_status_str = f"**PASSED** (Max abs diff vs ORT: {cpp_max_diff:.3e}, Mean: {cpp_mean_diff:.3e})"
+        else:
+            cpp_status_str = f"**FAILED** (Max abs diff vs ORT: {cpp_max_diff:.3e} exceeds tolerance {tolerance:.1e})"
+    else:
+        cpp_status_str = "*(Skipped: C++ benchmark output not yet generated)*"
 
     lines = [
         "# ONNX Export Numerical Parity Verification Report",
@@ -365,9 +367,13 @@ def main() -> None:
         cpp_max_diff = float(np.max(cpp_diffs))
         cpp_mean_diff = float(np.mean(cpp_diffs))
         cpp_available = True
+        cpp_passed = bool(cpp_max_diff < args.tolerance)
+        if not cpp_passed:
+            passed = False
         print(f"\nC++ Errors Cross-Check ({cpp_count} events from '{cpp_errors_path}'):")
-        print(f"  -> C++ vs ORT Max Abs Diff:    {cpp_max_diff:.6e}")
+        print(f"  -> C++ vs ORT Max Abs Diff:    {cpp_max_diff:.6e} (Tolerance: {args.tolerance:.1e})")
         print(f"  -> C++ vs ORT Mean Abs Diff:   {cpp_mean_diff:.6e}")
+        print(f"  -> C++ Parity Check:           {'PASSED' if cpp_passed else 'FAILED'}")
     else:
         cpp_max_diff = None
         cpp_mean_diff = None
