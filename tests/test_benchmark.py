@@ -16,6 +16,7 @@ from benchmark import (
     compute_headline_metrics,
     compute_run_statistics,
     compute_speedup,
+    parse_args,
     run_ort_cpp_benchmark,
     verify_pytorch_ort_parity,
 )
@@ -147,3 +148,16 @@ def test_verify_pytorch_ort_parity_failure() -> None:
             tolerance=1e-5,
         )
     assert "Pre-benchmark parity check failed" in str(exc_info.value)
+
+
+def test_parse_args_out_dir_routing(tmp_path: Path) -> None:
+    """Verify that specifying --out-dir redirects default outputs into that directory."""
+    custom_dir = tmp_path / "custom_run"
+    args = parse_args(["--out-dir", str(custom_dir)])
+
+    assert args.out_dir == custom_dir
+    assert args.out_md == custom_dir / "benchmark.md"
+    assert args.out_raw_json == custom_dir / "benchmark_raw.json"
+    assert args.cpp_json == custom_dir / "cpp_benchmark.json"
+    assert custom_dir.exists()
+

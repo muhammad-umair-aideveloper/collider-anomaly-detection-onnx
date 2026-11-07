@@ -38,8 +38,11 @@ import config
 from export_onnx import AnomalyDetectorExportWrapper, load_model_for_export
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args(args_list: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse CLI options for latency benchmark.
+
+    Args:
+        args_list: Optional list of CLI arguments (for programmatic invocation / testing).
 
     Returns:
         argparse.Namespace: Parsed CLI options.
@@ -70,6 +73,12 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=REPO_ROOT / "build" / "Release" / "collider_inference.exe",
         help="Path to compiled C++ inference executable.",
+    )
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help="Target directory for benchmark outputs (default: results/).",
     )
     parser.add_argument(
         "--out-md",
@@ -107,7 +116,19 @@ def parse_args() -> argparse.Namespace:
         default=3,
         help="Number of interleaved benchmark repetitions (default: 3).",
     )
-    return parser.parse_args()
+    args = parser.parse_args(args_list)
+
+    # If --out-dir is specified, route standard output artifacts into it unless explicitly overridden
+    if args.out_dir is not None:
+        args.out_dir.mkdir(parents=True, exist_ok=True)
+        if args.out_md == config.BENCHMARK_MD_PATH:
+            args.out_md = args.out_dir / "benchmark.md"
+        if args.out_raw_json == config.RESULTS_DIR / "benchmark_raw.json":
+            args.out_raw_json = args.out_dir / "benchmark_raw.json"
+        if args.cpp_json == config.CPP_BENCHMARK_PATH:
+            args.cpp_json = args.out_dir / "cpp_benchmark.json"
+
+    return args
 
 
 def get_hardware_info() -> Dict[str, str]:
