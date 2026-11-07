@@ -5,6 +5,9 @@
  * This program loads the exported autoencoder ONNX model, ingests collision events from CSV,
  * runs single-event inference with batch size 1 on CPU, classifies events as NORMAL or ANOMALY
  * relative to the recorded 95th percentile validation threshold, and logs error outputs.
+ *
+ * It supports a dedicated benchmark mode (--bench) measuring pure single-event inference
+ * latency (mean, median, p99, min, max) with microsecond precision over thousands of runs.
  */
 
 #include <onnxruntime_cxx_api.h>
@@ -63,7 +66,22 @@ struct Options {
     std::string csv_path{"data/sample_events.csv"};
     std::string threshold_file{"models/threshold.txt"};
     std::string out_path{"results/cpp_errors.txt"};
+    std::string bench_json{"results/cpp_benchmark.json"};
     size_t num_events{100};
+    bool benchmark_mode{false};
+    size_t warmup_runs{100};
+    size_t timed_runs{10000};
+};
+
+/**
+ * @brief Latency benchmark statistical summary.
+ */
+struct BenchmarkStats {
+    double mean_us{0.0};
+    double median_us{0.0};
+    double p99_us{0.0};
+    double min_us{0.0};
+    double max_us{0.0};
 };
 
 /**
@@ -77,6 +95,10 @@ void print_usage(const char* prog_name) {
               << "  --threshold-file <path>  Path to threshold text file (default: models/threshold.txt)\n"
               << "  --n <int>                Number of events to load/evaluate (default: 100)\n"
               << "  --out <path>             Destination for error values (default: results/cpp_errors.txt)\n"
+              << "  --bench                  Enable benchmark latency measurement mode\n"
+              << "  --bench-json <path>      Destination for benchmark JSON report (default: results/cpp_benchmark.json)\n"
+              << "  --warmup <int>           Number of untimed warmup iterations (default: 100)\n"
+              << "  --runs <int>             Number of timed inference runs (default: 10000)\n"
               << "  --help, -h               Print this help message\n";
 }
 
@@ -109,6 +131,27 @@ bool parse_arguments(int argc, char* argv[], Options& opts) {
         } else if (arg == "--out") {
             if (++i >= argc) { std::cerr << "Error: --out requires a path argument\n"; return false; }
             opts.out_path = argv[i];
+        } else if (arg == "--bench") {
+            opts.benchmark_mode = true;
+        } else if (arg == "--bench-json") {
+            if (++i >= argc) { std::cerr << "Error: --bench-json requires a path argument\n"; return false; }
+            opts.bench_json = argv[i];
+        } else if (arg == "--warmup") {
+            if (++i >= argc) { std::cerr << "Error: --warmup requires an integer argument\n"; return false; }
+            try {
+                opts.warmup_runs = std::stoul(argv[i]);
+            } catch (const std::exception&) {
+                std::cerr << "Error: Invalid integer for --warmup: " << argv[i] << "\n";
+                return false;
+            }
+        } else if (arg == "--runs") {
+            if (++i >= argc) { std::cerr << "Error: --runs requires an integer argument\n"; return false; }
+            try {
+                opts.timed_runs = std::stoul(argv[i]);
+            } catch (const std::exception&) {
+                std::cerr << "Error: Invalid integer for --runs: " << argv[i] << "\n";
+                return false;
+            }
         } else {
             std::cerr << "Error: Unknown argument: " << arg << "\n";
             print_usage(argv[0]);
@@ -203,6 +246,80 @@ std::vector<Event> load_events_csv(const std::string& path_str, size_t max_event
     return events;
 }
 
+/**
+ * @brief Compute statistical metrics (mean, median, p99, min, max) from latency vector.
+ */
+BenchmarkStats compute_benchmark_statistics(std::vector<double>& latencies) {
+    BenchmarkStats stats;
+    if (latencies.empty()) {
+        return stats;
+    }
+
+    std::sort(latencies.begin(), latencies.end());
+
+    double sum = std::accumulate(latencies.begin(), latencies.end(), 0.0);
+    stats.mean_us = sum / static_cast<double>(latencies.size());
+    stats.min_us = latencies.front();
+    stats.max_us = latencies.back();
+
+    size_t n = latencies.size();
+    if (n % 2 == 0) {
+        stats.median_us = 0.5 * (latencies[n / 2 - 1] + latencies[n / 2]);
+    } else {
+        stats.median_us = latencies[n / 2];
+    }
+
+    // 99th percentile index
+    size_t p99_idx = static_cast<size_t>(std::ceil(0.99 * static_cast<double>(n))) - 1;
+    if (p99_idx >= n) {
+        p99_idx = n - 1;
+    }
+    stats.p99_us = latencies[p99_idx];
+
+    return stats;
+}
+
+/**
+ * @brief Write benchmark metrics to JSON file.
+ */
+void write_benchmark_json(
+    const std::string& json_path_str,
+    const BenchmarkStats& stats,
+    size_t warmup_runs,
+    size_t timed_runs,
+    size_t num_distinct_events
+) {
+    fs::path p(json_path_str);
+    if (p.has_parent_path()) {
+        fs::create_directories(p.parent_path());
+    }
+
+    std::ofstream f(p);
+    if (!f.is_open()) {
+        throw std::runtime_error("Could not open benchmark JSON for writing: " + json_path_str);
+    }
+
+    f << "{\n"
+      << "  \"engine\": \"ONNX Runtime C++\",\n"
+      << "  \"version\": \"" << Ort::GetVersionString() << "\",\n"
+      << "  \"compiler\": \"" << COMPILER_INFO_STRING << "\",\n"
+      << "  \"build_type\": \"" << BUILD_CONFIG_STRING << "\",\n"
+      << "  \"batch_size\": 1,\n"
+      << "  \"intra_op_threads\": 1,\n"
+      << "  \"inter_op_threads\": 1,\n"
+      << "  \"distinct_events\": " << num_distinct_events << ",\n"
+      << "  \"warmup_runs\": " << warmup_runs << ",\n"
+      << "  \"timed_runs\": " << timed_runs << ",\n"
+      << "  \"latency_us\": {\n"
+      << "    \"mean\": " << std::fixed << std::setprecision(4) << stats.mean_us << ",\n"
+      << "    \"median\": " << std::fixed << std::setprecision(4) << stats.median_us << ",\n"
+      << "    \"p99\": " << std::fixed << std::setprecision(4) << stats.p99_us << ",\n"
+      << "    \"min\": " << std::fixed << std::setprecision(4) << stats.min_us << ",\n"
+      << "    \"max\": " << std::fixed << std::setprecision(4) << stats.max_us << "\n"
+      << "  }\n"
+      << "}\n";
+}
+
 int main(int argc, char* argv[]) {
     try {
         Options opts;
@@ -217,11 +334,22 @@ int main(int argc, char* argv[]) {
                   << "Input CSV:       " << opts.csv_path << "\n"
                   << "Threshold File:  " << opts.threshold_file << "\n"
                   << "Events to Load:  " << opts.num_events << "\n"
-                  << "Output Path:     " << opts.out_path << "\n"
+                  << "Mode:            " << (opts.benchmark_mode ? "BENCHMARK" : "NORMAL") << "\n"
                   << "Compiler:        " << COMPILER_INFO_STRING << "\n"
                   << "Build Config:    " << BUILD_CONFIG_STRING << "\n"
                   << "ORT Version:     " << Ort::GetVersionString() << "\n"
                   << "===============================================================\n";
+
+#ifndef NDEBUG
+        if (opts.benchmark_mode) {
+            std::cerr << "\n"
+                      << "***************************************************************\n"
+                      << "WARNING: NDEBUG is NOT defined! This is a DEBUG build.\n"
+                      << "Benchmark timings in Debug mode are invalid and non-representative.\n"
+                      << "Re-build in Release mode before publishing any benchmark figures.\n"
+                      << "***************************************************************\n\n";
+        }
+#endif
 
         // 1. Read threshold
         float threshold = load_threshold(opts.threshold_file);
@@ -275,94 +403,181 @@ int main(int argc, char* argv[]) {
                   << "  Input Name:  " << input_name << " (Shape: [1, 28])\n"
                   << "  Output Name: " << output_name << " (Shape: [1])\n\n";
 
-        // 5. Execute inference on each event
+        // Setup memory info and tensor shapes
         auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
         std::array<int64_t, 2> tensor_shape = {1, EXPECTED_NUM_FEATURES};
-
         const char* input_names[] = {input_name};
         const char* output_names[] = {output_name};
 
-        std::vector<float> recorded_errors;
-        recorded_errors.reserve(events.size());
+        // 5. Normal Mode execution
+        if (!opts.benchmark_mode) {
+            std::vector<float> recorded_errors;
+            recorded_errors.reserve(events.size());
 
-        size_t count_normal = 0;
-        size_t count_anomaly = 0;
-        size_t anomaly_sig = 0;
-        size_t anomaly_bg = 0;
+            size_t count_normal = 0;
+            size_t count_anomaly = 0;
+            size_t anomaly_sig = 0;
+            size_t anomaly_bg = 0;
 
-        std::cout << "--- Inference Results ---\n";
-        for (size_t i = 0; i < events.size(); ++i) {
-            const auto& ev = events[i];
+            std::cout << "--- Inference Results ---\n";
+            for (size_t i = 0; i < events.size(); ++i) {
+                const auto& ev = events[i];
 
-            // Wrap features in ORT Value
-            Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
-                memory_info,
-                const_cast<float*>(ev.features.data()),
-                ev.features.size(),
-                tensor_shape.data(),
-                tensor_shape.size()
-            );
+                Ort::Value input_tensor = Ort::Value::CreateTensor<float>(
+                    memory_info,
+                    const_cast<float*>(ev.features.data()),
+                    ev.features.size(),
+                    tensor_shape.data(),
+                    tensor_shape.size()
+                );
 
-            auto output_tensors = session.Run(
-                Ort::RunOptions{nullptr},
-                input_names,
-                &input_tensor,
-                1,
-                output_names,
-                1
-            );
+                auto output_tensors = session.Run(
+                    Ort::RunOptions{nullptr},
+                    input_names,
+                    &input_tensor,
+                    1,
+                    output_names,
+                    1
+                );
 
-            float error = output_tensors[0].GetTensorMutableData<float>()[0];
-            recorded_errors.push_back(error);
+                float error = output_tensors[0].GetTensorMutableData<float>()[0];
+                recorded_errors.push_back(error);
 
-            bool is_anomaly = (error > threshold);
-            if (is_anomaly) {
-                count_anomaly++;
-                if (ev.label == 1) anomaly_sig++;
-                else anomaly_bg++;
-            } else {
-                count_normal++;
+                bool is_anomaly = (error > threshold);
+                if (is_anomaly) {
+                    count_anomaly++;
+                    if (ev.label == 1) anomaly_sig++;
+                    else anomaly_bg++;
+                } else {
+                    count_normal++;
+                }
+
+                std::cout << "Event " << std::setw(3) << i
+                          << " | Label: " << ev.label
+                          << " | Error: " << std::setw(11) << std::setprecision(7) << std::fixed << error
+                          << " | Decision: " << (is_anomaly ? "ANOMALY" : "NORMAL") << "\n";
             }
 
-            // Print each event result
-            std::cout << "Event " << std::setw(3) << i
-                      << " | Label: " << ev.label
-                      << " | Error: " << std::setw(11) << std::setprecision(7) << std::fixed << error
-                      << " | Decision: " << (is_anomaly ? "ANOMALY" : "NORMAL") << "\n";
+            // Summary
+            std::cout << "\n===============================================================\n"
+                      << "INFERENCE SUMMARY\n"
+                      << "===============================================================\n"
+                      << "Total Events Evaluated:  " << events.size() << "\n"
+                      << "NORMAL  Decisions:       " << count_normal << "\n"
+                      << "ANOMALY Decisions:       " << count_anomaly << "\n"
+                      << "  - True Signal Flagged:   " << anomaly_sig << "\n"
+                      << "  - False Alarm (Bg):      " << anomaly_bg << "\n"
+                      << "===============================================================\n";
+
+            // Write first 100 errors to output file with %.9g precision
+            fs::path out_file_path(opts.out_path);
+            if (out_file_path.has_parent_path()) {
+                fs::create_directories(out_file_path.parent_path());
+            }
+
+            std::ofstream out_file(out_file_path);
+            if (!out_file.is_open()) {
+                std::cerr << "Error: Could not open output file for writing: " << opts.out_path << "\n";
+                return 1;
+            }
+
+            size_t write_count = std::min<size_t>(recorded_errors.size(), 100);
+            for (size_t i = 0; i < write_count; ++i) {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(recorded_errors[i]));
+                out_file << buf << "\n";
+            }
+            out_file.close();
+
+            std::cout << "Wrote " << write_count << " errors to: " << opts.out_path << "\n";
+
+        } else {
+            // 6. Benchmark Mode execution
+            std::cout << "===============================================================\n"
+                      << "BENCHMARK CONFIGURATION\n"
+                      << "===============================================================\n"
+                      << "Warmup Iterations:   " << opts.warmup_runs << "\n"
+                      << "Timed Iterations:    " << opts.timed_runs << "\n"
+                      << "Distinct Input Pool: " << events.size() << " events\n"
+                      << "Timing Clock:        std::chrono::steady_clock (pure Run() call)\n"
+                      << "===============================================================\n";
+
+            // Pre-create input tensors for all loaded events to isolate pure inference latency
+            std::vector<Ort::Value> precreated_tensors;
+            precreated_tensors.reserve(events.size());
+            for (auto& ev : events) {
+                precreated_tensors.push_back(Ort::Value::CreateTensor<float>(
+                    memory_info,
+                    ev.features.data(),
+                    ev.features.size(),
+                    tensor_shape.data(),
+                    tensor_shape.size()
+                ));
+            }
+
+            // Warmup loop (untimed)
+            std::cout << "Executing " << opts.warmup_runs << " warmup iterations...\n";
+            for (size_t w = 0; w < opts.warmup_runs; ++w) {
+                const auto& input_tensor = precreated_tensors[w % events.size()];
+                auto output = session.Run(
+                    Ort::RunOptions{nullptr},
+                    input_names,
+                    &input_tensor,
+                    1,
+                    output_names,
+                    1
+                );
+                (void)output;
+            }
+
+            // Timed loop
+            std::cout << "Executing " << opts.timed_runs << " timed iterations...\n";
+            std::vector<double> latencies_us;
+            latencies_us.reserve(opts.timed_runs);
+
+            for (size_t r = 0; r < opts.timed_runs; ++r) {
+                const auto& input_tensor = precreated_tensors[r % events.size()];
+
+                auto t0 = std::chrono::steady_clock::now();
+                auto output = session.Run(
+                    Ort::RunOptions{nullptr},
+                    input_names,
+                    &input_tensor,
+                    1,
+                    output_names,
+                    1
+                );
+                auto t1 = std::chrono::steady_clock::now();
+
+                double elapsed_us = std::chrono::duration<double, std::micro>(t1 - t0).count();
+                latencies_us.push_back(elapsed_us);
+                (void)output;
+            }
+
+            // Compute metrics
+            BenchmarkStats stats = compute_benchmark_statistics(latencies_us);
+
+            std::cout << "\n===============================================================\n"
+                      << "BENCHMARK RESULTS (LATENCY IN MICROSECONDS)\n"
+                      << "===============================================================\n"
+                      << "Mean Latency:    " << std::setw(8) << std::fixed << std::setprecision(2) << stats.mean_us << " us\n"
+                      << "Median Latency:  " << std::setw(8) << std::fixed << std::setprecision(2) << stats.median_us << " us\n"
+                      << "p99 Latency:     " << std::setw(8) << std::fixed << std::setprecision(2) << stats.p99_us << " us\n"
+                      << "Min Latency:     " << std::setw(8) << std::fixed << std::setprecision(2) << stats.min_us << " us\n"
+                      << "Max Latency:     " << std::setw(8) << std::fixed << std::setprecision(2) << stats.max_us << " us\n"
+                      << "Throughput:      " << std::setw(8) << std::fixed << std::setprecision(1) << (1e6 / stats.mean_us) << " events/sec\n"
+                      << "===============================================================\n";
+
+            // Write JSON artifact
+            write_benchmark_json(
+                opts.bench_json,
+                stats,
+                opts.warmup_runs,
+                opts.timed_runs,
+                events.size()
+            );
+            std::cout << "Saved benchmark metrics JSON to: " << opts.bench_json << "\n";
         }
-
-        // 6. Print summary
-        std::cout << "\n===============================================================\n"
-                  << "INFERENCE SUMMARY\n"
-                  << "===============================================================\n"
-                  << "Total Events Evaluated:  " << events.size() << "\n"
-                  << "NORMAL  Decisions:       " << count_normal << "\n"
-                  << "ANOMALY Decisions:       " << count_anomaly << "\n"
-                  << "  - True Signal Flagged:   " << anomaly_sig << "\n"
-                  << "  - False Alarm (Bg):      " << anomaly_bg << "\n"
-                  << "===============================================================\n";
-
-        // 7. Write first 100 errors to output file with %.9g precision
-        fs::path out_file_path(opts.out_path);
-        if (out_file_path.has_parent_path()) {
-            fs::create_directories(out_file_path.parent_path());
-        }
-
-        std::ofstream out_file(out_file_path);
-        if (!out_file.is_open()) {
-            std::cerr << "Error: Could not open output file for writing: " << opts.out_path << "\n";
-            return 1;
-        }
-
-        size_t write_count = std::min<size_t>(recorded_errors.size(), 100);
-        for (size_t i = 0; i < write_count; ++i) {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(recorded_errors[i]));
-            out_file << buf << "\n";
-        }
-        out_file.close();
-
-        std::cout << "Wrote " << write_count << " errors to: " << opts.out_path << "\n";
 
     } catch (const Ort::Exception& oe) {
         std::cerr << "ONNX Runtime Exception: " << oe.what() << "\n";
