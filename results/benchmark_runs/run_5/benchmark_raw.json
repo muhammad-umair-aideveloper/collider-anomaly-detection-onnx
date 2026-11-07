@@ -1,0 +1,210 @@
+{
+  "hardware": {
+    "cpu_name": "Intel(R) Core(TM) i5-6300U CPU @ 2.40GHz",
+    "cores": "2",
+    "threads": "4",
+    "os": "Windows 10 (Build 10.0.19045)"
+  },
+  "parameters": {
+    "warmup_runs": 100,
+    "timed_runs": 10000,
+    "repetitions": 3,
+    "batch_size": 1,
+    "threads": 1,
+    "num_sample_events": 1000
+  },
+  "c_cpp_meta": {
+    "engine": "ONNX Runtime C++",
+    "version": "1.20.1",
+    "compiler": "MSVC 1944",
+    "build_type": "Release",
+    "batch_size": 1,
+    "intra_op_threads": 1,
+    "inter_op_threads": 1,
+    "distinct_events": 100,
+    "warmup_runs": 100,
+    "timed_runs": 10000,
+    "latency_us": {
+      "mean": 28.4135,
+      "median": 20.2,
+      "p99": 94.8,
+      "min": 19.1,
+      "max": 5063.9
+    }
+  },
+  "headline_metrics": {
+    "pytorch": {
+      "mean": {
+        "median": 301.70930999999996,
+        "min": 285.71885,
+        "max": 303.03287,
+        "spread_pct": 5.738642934154081
+      },
+      "median": {
+        "median": 181.9,
+        "min": 181.0,
+        "max": 184.1,
+        "spread_pct": 1.7042330951071987
+      },
+      "p99": {
+        "median": 2628.535000000014,
+        "min": 1949.5710000000015,
+        "max": 3226.321000000005,
+        "spread_pct": 48.57268402360998
+      },
+      "min": {
+        "median": 156.2,
+        "min": 155.8,
+        "max": 156.4,
+        "spread_pct": 0.3841229193341833
+      },
+      "max": {
+        "median": 14566.7,
+        "min": 14565.2,
+        "max": 29605.7,
+        "spread_pct": 103.25262413587153
+      }
+    },
+    "ort_py": {
+      "mean": {
+        "median": 53.91721000000001,
+        "min": 47.23305,
+        "max": 125.74213999999999,
+        "spread_pct": 145.61044608947674
+      },
+      "median": {
+        "median": 35.0,
+        "min": 33.7,
+        "max": 59.5,
+        "spread_pct": 73.71428571428571
+      },
+      "p99": {
+        "median": 258.10500000000013,
+        "min": 139.00400000000008,
+        "max": 878.4240000000115,
+        "spread_pct": 286.4803084016238
+      },
+      "min": {
+        "median": 32.0,
+        "min": 31.7,
+        "max": 33.0,
+        "spread_pct": 4.062500000000002
+      },
+      "max": {
+        "median": 7606.9,
+        "min": 5547.1,
+        "max": 55966.7,
+        "spread_pct": 662.8140241096899
+      }
+    },
+    "ort_cpp": {
+      "mean": {
+        "median": 28.4135,
+        "min": 27.5652,
+        "max": 31.3834,
+        "spread_pct": 13.437978425748328
+      },
+      "median": {
+        "median": 20.7,
+        "min": 20.2,
+        "max": 21.3,
+        "spread_pct": 5.3140096618357555
+      },
+      "p99": {
+        "median": 87.2,
+        "min": 83.2,
+        "max": 94.8,
+        "spread_pct": 13.302752293577974
+      },
+      "min": {
+        "median": 19.1,
+        "min": 19.0,
+        "max": 19.6,
+        "spread_pct": 3.14136125654451
+      },
+      "max": {
+        "median": 6023.9,
+        "min": 5063.9,
+        "max": 7172.3,
+        "spread_pct": 35.000581018941226
+      }
+    }
+  },
+  "speedups": {
+    "pytorch_vs_ort_py": 5.1971428571428575,
+    "pytorch_vs_ort_cpp": 8.78743961352657,
+    "ort_py_vs_ort_cpp": 1.6908212560386473
+  },
+  "repetitions": {
+    "pytorch": [
+      {
+        "mean": 303.03287,
+        "median": 184.1,
+        "p99": 1949.5710000000015,
+        "min": 156.2,
+        "max": 14566.7
+      },
+      {
+        "mean": 301.70930999999996,
+        "median": 181.9,
+        "p99": 3226.321000000005,
+        "min": 156.4,
+        "max": 14565.2
+      },
+      {
+        "mean": 285.71885,
+        "median": 181.0,
+        "p99": 2628.535000000014,
+        "min": 155.8,
+        "max": 29605.7
+      }
+    ],
+    "ort_py": [
+      {
+        "mean": 125.74213999999999,
+        "median": 59.5,
+        "p99": 878.4240000000115,
+        "min": 33.0,
+        "max": 55966.7
+      },
+      {
+        "mean": 47.23305,
+        "median": 33.7,
+        "p99": 139.00400000000008,
+        "min": 31.7,
+        "max": 7606.9
+      },
+      {
+        "mean": 53.91721000000001,
+        "median": 35.0,
+        "p99": 258.10500000000013,
+        "min": 32.0,
+        "max": 5547.1
+      }
+    ],
+    "ort_cpp": [
+      {
+        "mean": 31.3834,
+        "median": 21.3,
+        "p99": 87.2,
+        "min": 19.0,
+        "max": 6023.9
+      },
+      {
+        "mean": 27.5652,
+        "median": 20.7,
+        "p99": 83.2,
+        "min": 19.6,
+        "max": 7172.3
+      },
+      {
+        "mean": 28.4135,
+        "median": 20.2,
+        "p99": 94.8,
+        "min": 19.1,
+        "max": 5063.9
+      }
+    ]
+  },
+  "timestamp": "2026-11-07T11:01:59.635493"
+}
