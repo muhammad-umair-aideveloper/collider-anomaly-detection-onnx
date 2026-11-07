@@ -1,4 +1,4 @@
-"""Unit tests for the Autoencoder model and internal standardization."""
+"""Unit tests for the Autoencoder model, internal standardization, and feature selection variants."""
 
 import sys
 from pathlib import Path
@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "python"))
 
 import config
-from model import Autoencoder
+from model import PRE_DECLARED_VARIANTS, Autoencoder
 
 
 @pytest.fixture
@@ -110,8 +110,55 @@ def test_raw_features_with_zero_variance_protection():
     ), "Standard deviation buffer fell below epsilon floor."
 
     test_input = torch.ones(5, config.NUM_FEATURES, dtype=torch.float32)
-    standardized = model.standardize(test_input)
+    selected_input = model.select_features(test_input)
+    standardized = model.standardize(selected_input)
     assert torch.all(
         torch.isfinite(standardized)
     ), "Standardization produced non-finite values for constant features."
 
+
+@pytest.mark.parametrize("variant_key", ["V0", "V1", "V2", "V3"])
+def test_pre_declared_variants_shapes_and_execution(sample_raw_batch, variant_key):
+    """Verify that all pre-declared variants accept raw [N, 28] features and execute cleanly."""
+    model = Autoencoder.from_variant(variant_key)
+    model.eval()
+
+    spec = PRE_DECLARED_VARIANTS[variant_key]
+    expected_dim = spec["layers"][0]
+    expected_latent = spec["layers"][2]
+
+    assert model.in_dim == expected_dim
+    assert model.latent_dim == expected_latent
+    assert model.mean.shape == (expected_dim,)
+    assert model.std.shape == (expected_dim,)
+
+    with torch.no_grad():
+        reconstruction = model(sample_raw_batch)
+        assert reconstruction.shape == (sample_raw_batch.shape[0], expected_dim)
+
+        errors = model.reconstruction_error(sample_raw_batch)
+        assert errors.shape == (sample_raw_batch.shape[0],)
+        assert torch.all(errors >= 0.0)
+        assert torch.all(torch.isfinite(errors))
+
+
+def test_variant_feature_selection_and_training_pass(sample_raw_batch):
+    """Verify end-to-end forward/backward passes and standardization on subset variants."""
+    # Test high-level features only (V2: 7 features)
+    model_v2 = Autoencoder.from_variant("V2")
+    model_v2.train()
+
+    # Ensure setting standardization directly from 28-column training data works
+    synthetic_train_data = sample_raw_batch.numpy()
+    model_v2.set_standardization(synthetic_train_data)
+    assert model_v2.mean.shape == (7,)
+    assert model_v2.std.shape == (7,)
+
+    errors = model_v2.reconstruction_error(sample_raw_batch)
+    loss = errors.mean()
+    assert torch.isfinite(loss)
+
+    loss.backward()
+    for name, param in model_v2.named_parameters():
+        assert param.grad is not None
+        assert torch.all(torch.isfinite(param.grad))
