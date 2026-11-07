@@ -26,7 +26,7 @@ Evaluated across all 4,000 events of `data/processed/select.npz` (2,000 backgrou
 
 ## 3. C++ Inference Cross-Comparison
 
-- **Status**: *(Skipped: C++ benchmark output not yet generated)*
+- **Status**: Max abs diff vs ORT: 0.000e+00 (Mean: 0.000e+00)
 
 ## Environment & Hardware
 
