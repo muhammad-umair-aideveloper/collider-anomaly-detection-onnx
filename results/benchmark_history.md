@@ -26,3 +26,4 @@ Each run consists of 3 interleaved repetitions of 10,000 timed single-event eval
 ## Mandatory Transparency Note
 
 A first run (run 1) showed a 70.6% spread between repetitions for ONNX Runtime Python. Its raw data was not retained, and the cause was not investigated or determined. The benchmark was repeated and the later runs are reported here.
+
