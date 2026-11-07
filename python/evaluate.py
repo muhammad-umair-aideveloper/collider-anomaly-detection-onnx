@@ -21,7 +21,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT / "python"))
 
 import config
-from model import Autoencoder
+from model import PRE_DECLARED_VARIANTS, Autoencoder
 
 
 def parse_args() -> argparse.Namespace:
@@ -94,7 +94,7 @@ def load_test_data(test_path: Path) -> Tuple[np.ndarray, np.ndarray]:
 
 def load_model_and_threshold(
     model_path: Path, threshold_path: Path
-) -> Tuple[Autoencoder, float]:
+) -> Tuple[Autoencoder, float, str]:
     """Load trained autoencoder and decision threshold from disk.
 
     Args:
@@ -102,7 +102,7 @@ def load_model_and_threshold(
         threshold_path: Path to threshold.txt.
 
     Returns:
-        Tuple of (model, threshold).
+        Tuple of (model, threshold, variant_name).
     """
     if not model_path.exists():
         raise FileNotFoundError(
@@ -119,11 +119,20 @@ def load_model_and_threshold(
 
     # Load model checkpoint
     checkpoint = torch.load(model_path, map_location="cpu", weights_only=False)
-    model = Autoencoder()
+    cfg = checkpoint.get("config", {})
+    variant = cfg.get("variant", None)
+    if variant is not None and variant in PRE_DECLARED_VARIANTS:
+        model = Autoencoder.from_variant(variant)
+    elif "layers" in cfg:
+        sel_features = cfg.get("selected_indices")
+        model = Autoencoder(layers=cfg["layers"], selected_features=sel_features)
+    else:
+        model = Autoencoder()
+
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
-    return model, threshold
+    return model, threshold, variant or "V0"
 
 
 def compute_reconstruction_errors(
@@ -402,6 +411,7 @@ def write_metrics_markdown(
     threshold: float,
     num_events: int,
     seed: int,
+    variant_name: str,
     output_path: Path,
 ) -> None:
     """Write evaluation metrics table to markdown file.
@@ -415,6 +425,7 @@ def write_metrics_markdown(
         threshold: Chosen anomaly threshold.
         num_events: Total test events evaluated.
         seed: Random seed.
+        variant_name: Model variant identifier.
         output_path: Target path for metrics.md.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -422,10 +433,18 @@ def write_metrics_markdown(
 
 Evaluation performed on held-out test split using best autoencoder checkpoint.
 
-## Summary Metrics
+## Model Comparison
+
+| Model | Architecture | ROC AUC | 95% Bootstrap CI | Decision Threshold | TPR (Sensitivity) | FPR (Fall-out) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Baseline V0, measured before selection** | 28 -> 16 -> 8 -> 16 -> 28 | 0.5069 | [0.4960, 0.5188] | 0.944065 | 0.0510 | 0.0484 |
+| **Selected Variant {variant_name}** | 7 -> 16 -> 4 -> 16 -> 7 (7 high-level invariant masses) | **{auc:.4f}** | [{ci_lower:.4f}, {ci_upper:.4f}] | {threshold:.6f} | **{confusion['tpr']:.4f}** | **{confusion['fpr']:.4f}** |
+
+## Summary Metrics (Selected Variant {variant_name})
 
 | Metric | Value | Details / Specification |
 | :--- | :--- | :--- |
+| **Model Variant** | **{variant_name}** | Pre-declared selection winner (7 high-level invariant masses) |
 | **ROC AUC** | **{auc:.4f}** | 95% Bootstrap CI: [{ci_lower:.4f}, {ci_upper:.4f}] (1000 resamples) |
 | **Decision Threshold** | **{threshold:.6f}** | 95th percentile of validation background error |
 | **Test Set Size** | **{num_events:,}** | 5,000 Background + 5,000 Signal events |
@@ -462,12 +481,13 @@ def main() -> None:
 
     # 1. Load inputs
     test_X, test_y = load_test_data(args.test_path)
-    model, threshold = load_model_and_threshold(args.model_path, args.threshold_path)
+    model, threshold, variant_name = load_model_and_threshold(args.model_path, args.threshold_path)
     num_events = len(test_y)
 
     print("=" * 60)
     print("COLLIDER ANOMALY DETECTION: EVALUATION")
     print("=" * 60)
+    print(f"Model Variant:         {variant_name}")
     print(f"Test Events Evaluated: {num_events}")
     print(f"Decision Threshold:    {threshold:.6f}")
     print(f"Bootstrap Seed:        {args.seed}")
@@ -519,6 +539,7 @@ def main() -> None:
         threshold=threshold,
         num_events=num_events,
         seed=args.seed,
+        variant_name=variant_name,
         output_path=metrics_path,
     )
 
