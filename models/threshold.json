@@ -1,8 +1,9 @@
 {
-  "threshold": 0.9440652132034302,
+  "variant": "V2",
+  "threshold": 0.19312407076358795,
   "percentile": 95.0,
   "num_validation_events": 2000,
   "seed": 42,
-  "best_epoch": 29,
-  "best_val_loss": 0.4847753345966339
+  "best_epoch": 30,
+  "best_val_loss": 0.051909107714891434
 }

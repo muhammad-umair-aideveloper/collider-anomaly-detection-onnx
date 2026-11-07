@@ -63,6 +63,13 @@ def parse_args() -> argparse.Namespace:
         help=f"Random seed for reproducibility (default: {config.SEED}).",
     )
     parser.add_argument(
+        "--variant",
+        type=str,
+        default="V0",
+        choices=list(config.PRE_DECLARED_VARIANTS.keys()) if hasattr(config, "PRE_DECLARED_VARIANTS") else ["V0", "V1", "V2", "V3"],
+        help="Pre-declared model variant (default: V0).",
+    )
+    parser.add_argument(
         "--out-dir",
         type=Path,
         default=None,
@@ -121,6 +128,7 @@ def train_model(
     batch_size: int,
     lr: float,
     seed: int,
+    variant: str = "V0",
 ) -> Tuple[Autoencoder, Dict[str, List[float]], int, float]:
     """Execute autoencoder training loop and return best model checkpoint.
 
@@ -131,6 +139,7 @@ def train_model(
         batch_size: Batch size.
         lr: Learning rate.
         seed: Random seed.
+        variant: Pre-declared variant identifier (V0, V1, V2, V3).
 
     Returns:
         Tuple of (best_model, loss_history, best_epoch, best_val_loss).
@@ -143,7 +152,7 @@ def train_model(
     device = torch.device("cpu")
 
     # Instantiate model and initialize internal standardization with training stats ONLY
-    model = Autoencoder().to(device)
+    model = Autoencoder.from_variant(variant).to(device)
     model.set_standardization(train_X)
 
     train_tensor = torch.from_numpy(train_X).to(device)
@@ -296,7 +305,7 @@ def main() -> None:
     print(f"Python Version:       {platform.python_version()}")
     print(f"PyTorch Version:      {torch.__version__} (CPU)")
     print(f"Random Seed:          {args.seed}")
-    print(f"Autoencoder Layers:   {config.AUTOENCODER_LAYERS}")
+    print(f"Model Variant:        {args.variant}")
     print(f"Epochs:               {args.epochs}")
     print(f"Batch Size:           {args.batch_size}")
     print(f"Learning Rate:        {args.lr}")
@@ -316,6 +325,7 @@ def main() -> None:
         batch_size=args.batch_size,
         lr=args.lr,
         seed=args.seed,
+        variant=args.variant,
     )
 
     elapsed_time = time.perf_counter() - start_time
@@ -332,7 +342,14 @@ def main() -> None:
             "mean": best_model.mean.cpu(),
             "std": best_model.std.cpu(),
             "config": {
-                "layers": config.AUTOENCODER_LAYERS,
+                "variant": args.variant,
+                "layers": best_model.layers,
+                "bottleneck_dim": best_model.latent_dim,
+                "selected_indices": (
+                    best_model.selected_indices.cpu().tolist()
+                    if best_model.selected_indices is not None
+                    else None
+                ),
                 "num_features": config.NUM_FEATURES,
                 "epsilon": config.STANDARDIZATION_EPSILON,
                 "seed": args.seed,
@@ -350,6 +367,7 @@ def main() -> None:
 
     # 5. Save threshold files
     threshold_meta = {
+        "variant": args.variant,
         "threshold": threshold,
         "percentile": config.THRESHOLD_PERCENTILE,
         "num_validation_events": int(val_X.shape[0]),

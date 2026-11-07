@@ -117,6 +117,7 @@ class Autoencoder(nn.Module):
         self.in_dim = in_dim
         self.out_dim = out_dim
         self.latent_dim = latent_dim
+        self.bottleneck_dim = latent_dim
 
         # Register persistent standardization buffers for selected features
         self.register_buffer("mean", torch.zeros(in_dim, dtype=torch.float32))
