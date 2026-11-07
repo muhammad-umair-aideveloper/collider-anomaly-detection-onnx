@@ -1,0 +1,21 @@
+{
+  "model": "Baseline V0, measured before selection",
+  "architecture": "28 -> 16 -> 8 -> 16 -> 28",
+  "roc_auc": 0.5069,
+  "ci_lower": 0.4960,
+  "ci_upper": 0.5188,
+  "threshold": 0.944065,
+  "tpr": 0.0510,
+  "fpr": 0.0484,
+  "tp": 255,
+  "fp": 242,
+  "tn": 4758,
+  "fn": 4745,
+  "bg_mean_error": 0.485360,
+  "bg_median_error": 0.414346,
+  "sig_mean_error": 0.484336,
+  "sig_median_error": 0.417253,
+  "test_set_size": 10000,
+  "seed": 42
+}
+

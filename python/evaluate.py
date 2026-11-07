@@ -7,9 +7,10 @@ histogram plots, and writes a reproducible metrics report.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -402,6 +403,21 @@ def plot_error_histogram(
     print(f"Error histogram saved to: {output_path}")
 
 
+def load_baseline_metrics(
+    baseline_path: Optional[Path] = None,
+) -> Optional[Dict[str, Union[str, float, int]]]:
+    """Load pre-selection baseline metrics from recorded JSON artifact."""
+    target_path = (
+        baseline_path
+        if baseline_path is not None
+        else REPO_ROOT / "results" / "experiments" / "baseline_v0_metrics.json"
+    )
+    if target_path.exists():
+        with open(target_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return None
+
+
 def write_metrics_markdown(
     auc: float,
     ci_lower: float,
@@ -413,6 +429,7 @@ def write_metrics_markdown(
     seed: int,
     variant_name: str,
     output_path: Path,
+    baseline_path: Optional[Path] = None,
 ) -> None:
     """Write evaluation metrics table to markdown file.
 
@@ -427,8 +444,29 @@ def write_metrics_markdown(
         seed: Random seed.
         variant_name: Model variant identifier.
         output_path: Target path for metrics.md.
+        baseline_path: Optional path to baseline JSON metrics.
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    baseline_data = load_baseline_metrics(baseline_path)
+    if baseline_data is not None:
+        b_name = baseline_data.get("model", "Baseline V0, measured before selection")
+        b_arch = baseline_data.get("architecture", "28 -> 16 -> 8 -> 16 -> 28")
+        b_auc = float(baseline_data.get("roc_auc", 0.0))
+        b_ci_l = float(baseline_data.get("ci_lower", 0.0))
+        b_ci_u = float(baseline_data.get("ci_upper", 0.0))
+        b_thresh = float(baseline_data.get("threshold", 0.0))
+        b_tpr = float(baseline_data.get("tpr", 0.0))
+        b_fpr = float(baseline_data.get("fpr", 0.0))
+        baseline_row = (
+            f"| **{b_name}** | {b_arch} | {b_auc:.4f} | [{b_ci_l:.4f}, {b_ci_u:.4f}] | "
+            f"{b_thresh:.6f} | {b_tpr:.4f} | {b_fpr:.4f} |\n"
+        )
+    else:
+        baseline_row = ""
+
+    selected_desc = PRE_DECLARED_VARIANTS.get(variant_name, {}).get("description", variant_name)
+
     content = f"""# Anomaly Detection Evaluation Metrics
 
 Evaluation performed on held-out test split using best autoencoder checkpoint.
@@ -437,8 +475,7 @@ Evaluation performed on held-out test split using best autoencoder checkpoint.
 
 | Model | Architecture | ROC AUC | 95% Bootstrap CI | Decision Threshold | TPR (Sensitivity) | FPR (Fall-out) |
 | :--- | :--- | :---: | :---: | :---: | :---: | :---: |
-| **Baseline V0, measured before selection** | 28 -> 16 -> 8 -> 16 -> 28 | 0.5069 | [0.4960, 0.5188] | 0.944065 | 0.0510 | 0.0484 |
-| **Selected Variant {variant_name}** | 7 -> 16 -> 4 -> 16 -> 7 (7 high-level invariant masses) | **{auc:.4f}** | [{ci_lower:.4f}, {ci_upper:.4f}] | {threshold:.6f} | **{confusion['tpr']:.4f}** | **{confusion['fpr']:.4f}** |
+{baseline_row}| **Selected Variant {variant_name}** | {selected_desc} | **{auc:.4f}** | [{ci_lower:.4f}, {ci_upper:.4f}] | {threshold:.6f} | **{confusion['tpr']:.4f}** | **{confusion['fpr']:.4f}** |
 
 ## Summary Metrics (Selected Variant {variant_name})
 
