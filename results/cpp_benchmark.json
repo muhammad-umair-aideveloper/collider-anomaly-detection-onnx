@@ -1,0 +1,19 @@
+{
+  "engine": "ONNX Runtime C++",
+  "version": "1.20.1",
+  "compiler": "MSVC 1944",
+  "build_type": "Release",
+  "batch_size": 1,
+  "intra_op_threads": 1,
+  "inter_op_threads": 1,
+  "distinct_events": 100,
+  "warmup_runs": 100,
+  "timed_runs": 10000,
+  "latency_us": {
+    "mean": 33.3878,
+    "median": 21.2000,
+    "p99": 132.4000,
+    "min": 19.8000,
+    "max": 6171.9000
+  }
+}
