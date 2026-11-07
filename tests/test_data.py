@@ -24,6 +24,7 @@ def processed_data():
         not config.TRAIN_SPLIT_PATH.exists()
         or not config.VAL_SPLIT_PATH.exists()
         or not config.TEST_SPLIT_PATH.exists()
+        or not config.SELECT_SPLIT_PATH.exists()
     ):
         pytest.skip(
             f"Processed data files not found in {config.PROCESSED_DATA_DIR}. "
@@ -33,6 +34,7 @@ def processed_data():
     train = np.load(config.TRAIN_SPLIT_PATH)
     val = np.load(config.VAL_SPLIT_PATH)
     test = np.load(config.TEST_SPLIT_PATH)
+    select = np.load(config.SELECT_SPLIT_PATH)
 
     return {
         "train_X": train["X"],
@@ -41,6 +43,8 @@ def processed_data():
         "val_y": val["y"],
         "test_X": test["X"],
         "test_y": test["y"],
+        "select_X": select["X"],
+        "select_y": select["y"],
     }
 
 
@@ -64,7 +68,7 @@ def test_split_shapes_and_sizes(processed_data):
 
 
 def test_label_purity_and_distribution(processed_data):
-    """Verify that train/val contain only background and test contains balanced classes."""
+    """Verify that train/val contain only background and test/select contain balanced classes."""
     # Train set must contain exclusively background events (label 0)
     assert np.all(processed_data["train_y"] == config.LABEL_BACKGROUND)
 
@@ -73,12 +77,21 @@ def test_label_purity_and_distribution(processed_data):
 
     # Test set must contain exactly 5,000 background and 5,000 signal events
     test_y = processed_data["test_y"]
-    bg_count = int((test_y == config.LABEL_BACKGROUND).sum())
-    sig_count = int((test_y == config.LABEL_SIGNAL).sum())
+    test_bg_count = int((test_y == config.LABEL_BACKGROUND).sum())
+    test_sig_count = int((test_y == config.LABEL_SIGNAL).sum())
 
-    assert bg_count == config.TEST_BACKGROUND_COUNT
-    assert sig_count == config.TEST_SIGNAL_COUNT
-    assert bg_count + sig_count == len(test_y)
+    assert test_bg_count == config.TEST_BACKGROUND_COUNT
+    assert test_sig_count == config.TEST_SIGNAL_COUNT
+    assert test_bg_count + test_sig_count == len(test_y)
+
+    # Select set must contain exactly 2,000 background and 2,000 signal events
+    select_y = processed_data["select_y"]
+    select_bg_count = int((select_y == config.LABEL_BACKGROUND).sum())
+    select_sig_count = int((select_y == config.LABEL_SIGNAL).sum())
+
+    assert select_bg_count == config.SELECT_BACKGROUND_COUNT
+    assert select_sig_count == config.SELECT_SIGNAL_COUNT
+    assert select_bg_count + select_sig_count == len(select_y)
 
 
 def test_no_nan_or_inf(processed_data):
@@ -92,11 +105,15 @@ def test_no_overlap_between_splits(processed_data):
     train_rows = set(map(tuple, processed_data["train_X"]))
     val_rows = set(map(tuple, processed_data["val_X"]))
     test_rows = set(map(tuple, processed_data["test_X"]))
+    select_rows = set(map(tuple, processed_data["select_X"]))
 
     # Compare set intersections
     overlap_train_val = train_rows.intersection(val_rows)
     overlap_train_test = train_rows.intersection(test_rows)
     overlap_val_test = val_rows.intersection(test_rows)
+    overlap_train_select = train_rows.intersection(select_rows)
+    overlap_val_select = val_rows.intersection(select_rows)
+    overlap_test_select = test_rows.intersection(select_rows)
 
     assert (
         len(overlap_train_val) == 0
@@ -107,6 +124,15 @@ def test_no_overlap_between_splits(processed_data):
     assert (
         len(overlap_val_test) == 0
     ), f"Leakage: {len(overlap_val_test)} overlapping rows between val and test."
+    assert (
+        len(overlap_train_select) == 0
+    ), f"Leakage: {len(overlap_train_select)} overlapping rows between train and select."
+    assert (
+        len(overlap_val_select) == 0
+    ), f"Leakage: {len(overlap_val_select)} overlapping rows between val and select."
+    assert (
+        len(overlap_test_select) == 0
+    ), f"Leakage: {len(overlap_test_select)} overlapping rows between test and select."
 
 
 def test_sample_events_csv():
