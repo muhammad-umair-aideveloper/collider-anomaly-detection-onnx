@@ -247,7 +247,8 @@ def verify_pytorch_ort_parity(
             event_torch = torch.from_numpy(event_np).float()
 
             pt_err = float(pytorch_wrapper(event_torch).item())
-            ort_err = float(ort_session.run(None, {input_name: event_np})[0][0])
+            ort_out = ort_session.run(None, {input_name: event_np})[0]
+            ort_err = float(np.asarray(ort_out).item())
 
             diff = abs(pt_err - ort_err)
             if diff >= tolerance:
